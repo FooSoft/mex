@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -147,12 +146,10 @@ func (self *Volume) export(path string, config ExportConfig, allocator *TempDirA
 
 func (self *Volume) supercedes(other *Volume) bool {
 	if len(self.Pages) > len(other.Pages) {
-		log.Printf("picking %s over %s because it has more pages", self.Node.Name, other.Node.Name)
 		return true
 	}
 
 	if self.AveragePageSize() > other.AveragePageSize() {
-		log.Printf("picking %s over %s because it has larger pages", self.Node.Name, other.Node.Name)
 		return true
 	}
 
