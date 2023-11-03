@@ -2,6 +2,7 @@ package mex
 
 import (
 	"bytes"
+	_ "embed"
 	"errors"
 	"fmt"
 	"html/template"
@@ -9,10 +10,28 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 )
+
+//go:embed regexp.txt
+var volumeExpStrs string
+
+func parseVolumeIndex(path string) *int {
+	for _, expStr := range strings.Split(volumeExpStrs, "\n") {
+		exp := regexp.MustCompile(expStr)
+		if matches := exp.FindStringSubmatch(filepath.Base(path)); len(matches) >= 2 {
+			if index, err := strconv.ParseInt(matches[1], 10, 32); err == nil {
+				indexInt := int(index)
+				return &indexInt
+			}
+		}
+	}
+
+	return nil
+}
 
 func isImagePath(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
@@ -272,14 +291,8 @@ func (self *Book) parseVolumes(node *Node) {
 	}
 
 	if len(volume.Pages) > 0 {
-		exp := regexp.MustCompile(`(\d+)\D*$`)
-		if matches := exp.FindStringSubmatch(node.Name); len(matches) >= 2 {
-			index, err := strconv.ParseInt(matches[1], 10, 32)
-			if err != nil {
-				panic(err)
-			}
-
-			volume.Index = int(index)
+		if index := parseVolumeIndex(node.Name); index != nil {
+			volume.Index = *index
 			self.addVolume(volume)
 		} else {
 			self.addOrphan(volume)
@@ -296,6 +309,10 @@ func ParseBook(node *Node) (*Book, error) {
 	book.parseVolumes(node)
 
 	if len(book.orphans) > 0 {
+		sort.Slice(book.orphans, func(i, j int) bool {
+			return strings.Compare(book.orphans[i].Node.Name, book.orphans[j].Node.Name) < 0
+		})
+
 		for _, volume := range book.orphans {
 			volume.Index = book.VolumeCount
 			book.addVolume(volume)
