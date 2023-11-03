@@ -75,7 +75,7 @@ type Page struct {
 }
 
 func (self *Page) export(dir string, config ExportConfig) error {
-	name, err := buildTemplatedName(config.PageTemplate, self.Node.Name, self.Index+1, len(self.Volume.Pages))
+	name, err := buildTemplatedName(config.PageTemplate, self.Node.Name, self.Index+1, len(self.Volume.Pages)-1)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func (self *Volume) AveragePageSize() int {
 }
 
 func (self *Volume) export(path string, config ExportConfig, allocator *TempDirAllocator) error {
-	name, err := buildTemplatedName(config.VolumeTemplate, stripExt(self.Node.Name), self.Index, self.Book.MaxVolume)
+	name, err := buildTemplatedName(config.VolumeTemplate, stripExt(self.Node.Name), self.Index, self.Book.VolumeCount-1)
 	if err != nil {
 		return err
 	}
@@ -160,9 +160,10 @@ func (self *Volume) supercedes(other *Volume) bool {
 }
 
 type Book struct {
-	Node      *Node
-	Volumes   map[int]*Volume
-	MaxVolume int
+	Node        *Node
+	Volumes     map[int]*Volume
+	VolumeCount int
+	orphans     []*Volume
 }
 
 func (self *Book) Export(path string, config ExportConfig, allocator *TempDirAllocator) error {
@@ -231,10 +232,26 @@ func (self *Book) Export(path string, config ExportConfig, allocator *TempDirAll
 }
 
 func (self *Book) addVolume(volume *Volume) {
-	currVolume, _ := self.Volumes[volume.Index]
-	if currVolume == nil || volume.supercedes(currVolume) {
-		self.Volumes[volume.Index] = volume
+	insert := func(v *Volume) {
+		self.Volumes[v.Index] = v
+		if v.Index >= self.VolumeCount {
+			self.VolumeCount = v.Index + 1
+		}
 	}
+
+	currVolume, _ := self.Volumes[volume.Index]
+	if currVolume == nil {
+		insert(volume)
+	} else if volume.supercedes(currVolume) {
+		self.addOrphan(currVolume)
+		insert(volume)
+	} else {
+		self.addOrphan(volume)
+	}
+}
+
+func (self *Book) addOrphan(volume *Volume) {
+	self.orphans = append(self.orphans, volume)
 }
 
 func (self *Book) parseVolumes(node *Node) {
@@ -266,11 +283,9 @@ func (self *Book) parseVolumes(node *Node) {
 			}
 
 			volume.Index = int(index)
-			if volume.Index > self.MaxVolume {
-				self.MaxVolume = volume.Index
-			}
-
 			self.addVolume(volume)
+		} else {
+			self.addOrphan(volume)
 		}
 	}
 }
@@ -282,6 +297,15 @@ func ParseBook(node *Node) (*Book, error) {
 	}
 
 	book.parseVolumes(node)
+
+	if len(book.orphans) > 0 {
+		for _, volume := range book.orphans {
+			volume.Index = book.VolumeCount
+			book.addVolume(volume)
+		}
+
+		book.orphans = nil
+	}
 
 	if len(book.Volumes) == 0 {
 		return nil, errors.New("no volumes found")
