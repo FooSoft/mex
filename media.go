@@ -2,10 +2,12 @@ package mex
 
 import (
 	"bytes"
+	"crypto/sha256"
 	_ "embed"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -110,19 +112,9 @@ type Volume struct {
 	Book  *Book
 	Pages []*Page
 	Index int
-}
 
-func (self *Volume) AveragePageSize() int {
-	if len(self.Pages) == 0 {
-		return 0
-	}
-
-	var totalSize int
-	for _, page := range self.Pages {
-		totalSize += int(page.Node.Info.Size())
-	}
-
-	return totalSize / len(self.Pages)
+	avgSize int
+	hash    []byte
 }
 
 func (self *Volume) export(path string, config ExportConfig, allocator *TempDirAllocator) error {
@@ -164,36 +156,27 @@ func (self *Volume) export(path string, config ExportConfig, allocator *TempDirA
 }
 
 func (self *Volume) compare(other *Volume) int {
-	if len(self.Pages) == len(other.Pages) {
-		var different bool
-		for i := range self.Pages {
-			if self.Pages[i].Node.Info.Size() != other.Pages[i].Node.Info.Size() {
-				different = true
-				break
-			}
-		}
-
-		if !different {
-			return 0
-		}
-	}
-
 	if len(self.Pages) > len(other.Pages) {
 		return 1
+	} else if len(self.Pages) < len(other.Pages) {
+		return -1
 	}
 
-	if self.AveragePageSize() > other.AveragePageSize() {
+	if self.avgSize > other.avgSize {
 		return 1
+	} else if self.avgSize < other.avgSize {
+		return -1
 	}
 
-	return -1
+	return bytes.Compare(self.hash, other.hash)
 }
 
 type Book struct {
 	Node        *Node
 	Volumes     map[int]*Volume
 	VolumeCount int
-	orphans     []*Volume
+
+	orphans []*Volume
 }
 
 func (self *Book) Export(path string, config ExportConfig, allocator *TempDirAllocator) error {
@@ -293,9 +276,9 @@ func (self *Book) addOrphan(newVolume *Volume) {
 	self.orphans = append(self.orphans, newVolume)
 }
 
-func (self *Book) parseVolumes(node *Node) {
+func (self *Book) parseVolumes(node *Node) error {
 	if !node.Info.IsDir() {
-		return
+		return nil
 	}
 
 	volume := &Volume{
@@ -306,25 +289,55 @@ func (self *Book) parseVolumes(node *Node) {
 	var pageIndex int
 	for _, child := range node.Children {
 		if child.Info.IsDir() {
-			self.parseVolumes(child)
+			if err := self.parseVolumes(child); err != nil {
+				return err
+			}
 		} else if isImagePath(child.Name) {
 			volume.Pages = append(volume.Pages, &Page{child, volume, pageIndex})
 			pageIndex++
 		}
 	}
 
-	if len(volume.Pages) > 0 {
-		sort.Slice(volume.Pages, func(i, j int) bool {
-			return strings.Compare(volume.Pages[i].Node.Name, volume.Pages[j].Node.Name) < 0
-		})
-
-		if index := parseVolumeIndex(node.Name); index != nil {
-			volume.Index = *index
-			self.addVolume(volume)
-		} else {
-			self.addOrphan(volume)
-		}
+	if len(volume.Pages) == 0 {
+		return nil
 	}
+
+	sort.Slice(volume.Pages, func(i, j int) bool {
+		return strings.Compare(volume.Pages[i].Node.Name, volume.Pages[j].Node.Name) < 0
+	})
+
+	var (
+		hasher    = sha256.New()
+		totalSize = 0
+	)
+
+	for _, page := range volume.Pages {
+		fp, err := os.Open(page.Node.Path)
+		if err != nil {
+			return err
+		}
+
+		size, err := io.Copy(hasher, fp)
+		fp.Close()
+
+		if err != nil {
+			return err
+		}
+
+		totalSize += int(size)
+	}
+
+	volume.avgSize = totalSize / len(volume.Pages)
+	volume.hash = hasher.Sum(nil)
+
+	if index := parseVolumeIndex(node.Name); index != nil {
+		volume.Index = *index
+		self.addVolume(volume)
+	} else {
+		self.addOrphan(volume)
+	}
+
+	return nil
 }
 
 func ParseBook(node *Node) (*Book, error) {
