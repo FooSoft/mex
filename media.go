@@ -95,7 +95,7 @@ type Page struct {
 }
 
 func (self *Page) export(dir string, config ExportConfig) error {
-	name, err := buildTemplatedName(config.PageTemplate, self.Node.Name, self.Index+1, len(self.Volume.Pages)-1)
+	name, err := buildTemplatedName(config.PageTemplate, self.Node.Name, self.Index+1, len(self.Volume.Pages))
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ type Volume struct {
 }
 
 func (self *Volume) export(path string, config ExportConfig, allocator *TempDirAllocator) error {
-	name, err := buildTemplatedName(config.VolumeTemplate, stripExt(self.Node.Name), self.Index, self.Book.VolumeCount-1)
+	name, err := buildTemplatedName(config.VolumeTemplate, stripExt(self.Node.Name), self.Index, self.Book.VolumeCount)
 	if err != nil {
 		return err
 	}
