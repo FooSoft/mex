@@ -163,16 +163,30 @@ func (self *Volume) export(path string, config ExportConfig, allocator *TempDirA
 	return nil
 }
 
-func (self *Volume) supercedes(other *Volume) bool {
+func (self *Volume) compare(other *Volume) int {
+	if len(self.Pages) == len(other.Pages) {
+		var different bool
+		for i := range self.Pages {
+			if self.Pages[i].Node.Info.Size() != other.Pages[i].Node.Info.Size() {
+				different = true
+				break
+			}
+		}
+
+		if !different {
+			return 0
+		}
+	}
+
 	if len(self.Pages) > len(other.Pages) {
-		return true
+		return 1
 	}
 
 	if self.AveragePageSize() > other.AveragePageSize() {
-		return true
+		return 1
 	}
 
-	return false
+	return -1
 }
 
 type Book struct {
@@ -247,7 +261,7 @@ func (self *Book) Export(path string, config ExportConfig, allocator *TempDirAll
 	return nil
 }
 
-func (self *Book) addVolume(volume *Volume) {
+func (self *Book) addVolume(newVolume *Volume) {
 	insert := func(v *Volume) {
 		self.Volumes[v.Index] = v
 		if v.Index >= self.VolumeCount {
@@ -255,14 +269,17 @@ func (self *Book) addVolume(volume *Volume) {
 		}
 	}
 
-	currVolume, _ := self.Volumes[volume.Index]
+	currVolume, _ := self.Volumes[newVolume.Index]
 	if currVolume == nil {
-		insert(volume)
-	} else if volume.supercedes(currVolume) {
-		self.addOrphan(currVolume)
-		insert(volume)
+		insert(newVolume)
 	} else {
-		self.addOrphan(volume)
+		switch newVolume.compare(currVolume) {
+		case 1:
+			insert(newVolume)
+			self.addOrphan(currVolume)
+		case -1:
+			self.addOrphan(newVolume)
+		}
 	}
 }
 
