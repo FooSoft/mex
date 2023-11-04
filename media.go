@@ -273,18 +273,24 @@ func (self *Book) addVolume(newVolume *Volume) {
 	if currVolume == nil {
 		insert(newVolume)
 	} else {
-		switch newVolume.compare(currVolume) {
+		switch currVolume.compare(newVolume) {
 		case 1:
-			insert(newVolume)
-			self.addOrphan(currVolume)
-		case -1:
 			self.addOrphan(newVolume)
+		case -1:
+			self.addOrphan(currVolume)
+			insert(newVolume)
 		}
 	}
 }
 
-func (self *Book) addOrphan(volume *Volume) {
-	self.orphans = append(self.orphans, volume)
+func (self *Book) addOrphan(newVolume *Volume) {
+	for _, volume := range self.orphans {
+		if volume.compare(newVolume) == 0 {
+			return
+		}
+	}
+
+	self.orphans = append(self.orphans, newVolume)
 }
 
 func (self *Book) parseVolumes(node *Node) {
@@ -308,6 +314,10 @@ func (self *Book) parseVolumes(node *Node) {
 	}
 
 	if len(volume.Pages) > 0 {
+		sort.Slice(volume.Pages, func(i, j int) bool {
+			return strings.Compare(volume.Pages[i].Node.Name, volume.Pages[j].Node.Name) < 0
+		})
+
 		if index := parseVolumeIndex(node.Name); index != nil {
 			volume.Index = *index
 			self.addVolume(volume)
