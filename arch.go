@@ -48,7 +48,8 @@ func Compress(archPath, contentDir string) error {
 	)
 
 	log.Printf("compressing %s...", archPath)
-	if err := toolCmd.Run(); err != nil {
+	if output, err := toolCmd.CombinedOutput(); err != nil {
+		fmt.Println(string(output))
 		return errors.Join(fmt.Errorf("compression of %s failed", archPath), err)
 	}
 
@@ -91,7 +92,8 @@ func Decompress(archPath string, allocator *TempDirAllocator) (string, error) {
 	toolCmd.Dir = contentDir
 
 	log.Printf("decompressing %s...", archPath)
-	if err := toolCmd.Run(); err != nil {
+	if output, err := toolCmd.CombinedOutput(); err != nil {
+		fmt.Println(string(output))
 		return "", errors.Join(fmt.Errorf("decompression of %s failed", archPath), err)
 	}
 
